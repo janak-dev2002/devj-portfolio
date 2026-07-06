@@ -1,0 +1,103 @@
+@import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@300;400;500;600;700&family=JetBrains+Mono:wght@300;400;500;700&display=swap');
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  *, *::before, *::after { box-sizing: border-box; }
+  html { scroll-behavior: smooth; background: #050A15; }
+  body {
+    background: #050A15;
+    color: #E2E8F0;
+    margin: 0;
+    padding: 0;
+    overflow-x: hidden;
+    font-family: 'Space Grotesk', sans-serif;
+  }
+  ::-webkit-scrollbar       { width: 5px; }
+  ::-webkit-scrollbar-track { background: #050A15; }
+  ::-webkit-scrollbar-thumb { background: #1A3A5C; border-radius: 3px; }
+  ::-webkit-scrollbar-thumb:hover { background: #00FF88; }
+  ::selection { background: rgba(0,255,136,0.2); color: #E2E8F0; }
+}
+
+@layer utilities {
+  .grid-bg {
+    background-image:
+      linear-gradient(rgba(0,180,216,0.04) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(0,180,216,0.04) 1px, transparent 1px);
+    background-size: 48px 48px;
+  }
+
+  .panel {
+    background: #0A1628;
+    border: 1px solid #1A3A5C;
+    transition: border-color 0.2s, box-shadow 0.2s;
+  }
+  .panel:hover {
+    border-color: rgba(0,255,136,0.35);
+    box-shadow: 0 0 24px rgba(0,255,136,0.06);
+  }
+
+  .btn-primary {
+    display: inline-block;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.8rem;
+    padding: 10px 24px;
+    border: 1px solid #00FF88;
+    color: #00FF88;
+    transition: all 0.2s;
+    cursor: pointer;
+    text-align: center;
+    text-decoration: none;
+  }
+  .btn-primary:hover {
+    background: #00FF88;
+    color: #050A15;
+    box-shadow: 0 0 20px rgba(0,255,136,0.3);
+  }
+
+  .btn-secondary {
+    display: inline-block;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.8rem;
+    padding: 10px 24px;
+    border: 1px solid #00B4D8;
+    color: #00B4D8;
+    transition: all 0.2s;
+    cursor: pointer;
+    text-align: center;
+    text-decoration: none;
+  }
+  .btn-secondary:hover {
+    background: #00B4D8;
+    color: #050A15;
+    box-shadow: 0 0 20px rgba(0,180,216,0.3);
+  }
+
+  .cursor-blink { animation: blink 0.53s step-start infinite; }
+  .pulse-dot    { animation: pulse-dot 2s ease-in-out infinite; }
+  .marquee-run  { animation: marquee 35s linear infinite; }
+  .scan-line    { animation: scan 4s linear infinite; }
+}
+
+@keyframes blink {
+  0%,100% { opacity: 1; }
+  50%     { opacity: 0; }
+}
+
+@keyframes pulse-dot {
+  0%,100% { opacity: 1; transform: scale(1); }
+  50%     { opacity: 0.4; transform: scale(1.4); }
+}
+
+@keyframes marquee {
+  0%   { transform: translateX(0); }
+  100% { transform: translateX(-50%); }
+}
+
+@keyframes scan {
+  0%   { top: -4px; }
+  100% { top: 100%; }
+}

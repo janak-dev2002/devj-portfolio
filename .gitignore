@@ -1,0 +1,23 @@
+# Environment and secrets
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+
+# MCP config — contains credentials, never commit
+.mcp.json
+.gemini/settings.json
+
+# OS
+Thumbs.db
+.DS_Store
+
+# Editor
+.vscode/
+.idea/
+*.swp
+
+# Frontend build (has its own .gitignore)
+frontend/node_modules/
+frontend/dist/
