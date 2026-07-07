@@ -14,7 +14,10 @@ import {
   siGnubash,
   siAnthropic,
 } from 'simple-icons'
-import { hexSkills, personal } from '../data/content'
+import { personal, type HexSkill } from '../data/content'
+import { getSkills } from '../services/api'
+import { useApiResource } from '../hooks/useApiResource'
+import ApiErrorState from './ApiErrorState'
 
 type HexColor = 'green' | 'blue'
 type SIIcon = typeof siLinux
@@ -107,7 +110,7 @@ function ProficiencyRing({ proficiency, color, icon, label }: RingProps) {
 const TOOLTIP_W = 172
 
 interface HexTooltipProps {
-  skill:  typeof hexSkills[0]
+  skill:  HexSkill
   accent: string
   rect:   DOMRect
 }
@@ -157,7 +160,7 @@ function HexTooltip({ skill, accent, rect }: HexTooltipProps) {
 }
 
 interface HexCellProps {
-  skill:   typeof hexSkills[0]
+  skill:   HexSkill
   hovered: string | null
   onHover: (label: string | null) => void
 }
@@ -235,9 +238,39 @@ function HexCell({ skill, hovered, onHover }: HexCellProps) {
   )
 }
 
+function SkillsSkeleton() {
+  const rows = chunk(Array.from({ length: 8 }), ROW_SIZE)
+  return (
+    <>
+      <div className="hidden md:flex flex-col items-center animate-pulse" style={{ gap: GAP_Y, paddingBottom: 8 }}>
+        {rows.map((row, rowIndex) => {
+          const rowOffset = rowIndex % 2 === 1 ? (HEX_W + GAP_X) / 2 : 0
+          return (
+            <div key={rowIndex} className="flex" style={{ gap: GAP_X, transform: `translateX(${rowOffset}px)` }}>
+              {row.map((_, i) => (
+                <div
+                  key={i}
+                  className="flex-shrink-0"
+                  style={{ width: HEX_W, height: HEX_H, clipPath: HEX_CLIP, background: 'rgba(148,163,184,0.08)' }}
+                />
+              ))}
+            </div>
+          )
+        })}
+      </div>
+      <div className="md:hidden grid grid-cols-3 gap-3 animate-pulse">
+        {Array.from({ length: 6 }).map((_, i) => (
+          <div key={i} className="panel h-[104px]" />
+        ))}
+      </div>
+    </>
+  )
+}
+
 export default function Skills() {
   const [hovered, setHovered] = useState<string | null>(null)
-  const rows = chunk(hexSkills, ROW_SIZE)
+  const { data: hexSkills, status, errorMessage, retry } = useApiResource(getSkills)
+  const rows = chunk(hexSkills ?? [], ROW_SIZE)
 
   return (
     <section id="skills" className="px-4 md:px-8 lg:px-16 py-20 border-t border-navy-border">
@@ -254,95 +287,103 @@ export default function Skills() {
           </p>
         </motion.div>
 
-        {/* Desktop honeycomb */}
-        <div className="hidden md:block relative">
-          <div
-            className="absolute inset-0 pointer-events-none"
-            style={{
-              background: 'radial-gradient(ellipse 60% 50% at center, rgba(0,255,136,0.06), transparent 70%)',
-              filter: 'blur(30px)',
-            }}
-          />
-          <motion.div
-            className="relative flex flex-col items-center overflow-visible"
-            style={{ gap: GAP_Y, paddingBottom: 8 }}
-            variants={containerVariants}
-            initial="hidden"
-            whileInView="visible"
-            viewport={{ once: true, margin: '-80px' }}
-          >
-            {rows.map((row, rowIndex) => {
-              const rowOffset = rowIndex % 2 === 1 ? (HEX_W + GAP_X) / 2 : 0
-              return (
-                <div
-                  key={rowIndex}
-                  className="flex"
-                  style={{ gap: GAP_X, transform: `translateX(${rowOffset}px)` }}
-                >
-                  {row.map(skill => (
-                    <HexCell
-                      key={skill.label}
-                      skill={skill}
-                      hovered={hovered}
-                      onHover={setHovered}
-                    />
-                  ))}
-                </div>
-              )
-            })}
-          </motion.div>
-        </div>
+        {status === 'loading' && <SkillsSkeleton />}
 
-        {/* Mobile grid fallback */}
-        <motion.div
-          className="md:hidden grid grid-cols-3 gap-3"
-          variants={containerVariants}
-          initial="hidden"
-          whileInView="visible"
-          viewport={{ once: true }}
-        >
-          {hexSkills.map(skill => {
-            const color  = skill.color as HexColor
-            const accent = ACCENT[color]
-            const icon   = ICONS[skill.label] ?? null
-            return (
-              <motion.div
-                key={skill.label}
-                variants={hexVariants}
-                className="panel flex flex-col items-center gap-1.5 p-3 text-center"
-              >
-                <ProficiencyRing proficiency={skill.proficiency} color={accent} icon={icon} label={skill.label} />
-                <p className="font-sans text-[10.5px] font-semibold text-ink-primary leading-tight">
-                  {skill.label}
-                </p>
-                <p className="font-mono text-[9px] font-medium" style={{ color: accent }}>
-                  {skill.proficiency}%
-                </p>
-              </motion.div>
-            )
-          })}
-        </motion.div>
+        {status === 'error' && <ApiErrorState message={errorMessage} onRetry={retry} />}
 
-        {/* Legend */}
-        <motion.div
-          className="flex flex-wrap gap-6 mt-12 justify-center"
-          initial={{ opacity: 0 }}
-          whileInView={{ opacity: 1 }}
-          viewport={{ once: true }}
-        >
-          {[
-            { color: ACCENT.green, label: 'Active'   },
-            { color: ACCENT.blue,  label: 'Learning' },
-          ].map(item => (
-            <span key={item.label} className="flex items-center gap-2 font-mono text-xs text-ink-muted">
-              <span
-                className="w-2.5 h-2.5 inline-block border"
-                style={{ background: `${item.color}1A`, borderColor: `${item.color}59` }}
+        {status === 'success' && (
+          <>
+            {/* Desktop honeycomb */}
+            <div className="hidden md:block relative">
+              <div
+                className="absolute inset-0 pointer-events-none"
+                style={{
+                  background: 'radial-gradient(ellipse 60% 50% at center, rgba(0,255,136,0.06), transparent 70%)',
+                  filter: 'blur(30px)',
+                }}
               />
-              {item.label}
-            </span>
-          ))}
-        </motion.div>
+              <motion.div
+                className="relative flex flex-col items-center overflow-visible"
+                style={{ gap: GAP_Y, paddingBottom: 8 }}
+                variants={containerVariants}
+                initial="hidden"
+                whileInView="visible"
+                viewport={{ once: true, margin: '-80px' }}
+              >
+                {rows.map((row, rowIndex) => {
+                  const rowOffset = rowIndex % 2 === 1 ? (HEX_W + GAP_X) / 2 : 0
+                  return (
+                    <div
+                      key={rowIndex}
+                      className="flex"
+                      style={{ gap: GAP_X, transform: `translateX(${rowOffset}px)` }}
+                    >
+                      {row.map(skill => (
+                        <HexCell
+                          key={skill.label}
+                          skill={skill}
+                          hovered={hovered}
+                          onHover={setHovered}
+                        />
+                      ))}
+                    </div>
+                  )
+                })}
+              </motion.div>
+            </div>
+
+            {/* Mobile grid fallback */}
+            <motion.div
+              className="md:hidden grid grid-cols-3 gap-3"
+              variants={containerVariants}
+              initial="hidden"
+              whileInView="visible"
+              viewport={{ once: true }}
+            >
+              {(hexSkills ?? []).map(skill => {
+                const color  = skill.color as HexColor
+                const accent = ACCENT[color]
+                const icon   = ICONS[skill.label] ?? null
+                return (
+                  <motion.div
+                    key={skill.label}
+                    variants={hexVariants}
+                    className="panel flex flex-col items-center gap-1.5 p-3 text-center"
+                  >
+                    <ProficiencyRing proficiency={skill.proficiency} color={accent} icon={icon} label={skill.label} />
+                    <p className="font-sans text-[10.5px] font-semibold text-ink-primary leading-tight">
+                      {skill.label}
+                    </p>
+                    <p className="font-mono text-[9px] font-medium" style={{ color: accent }}>
+                      {skill.proficiency}%
+                    </p>
+                  </motion.div>
+                )
+              })}
+            </motion.div>
+
+            {/* Legend */}
+            <motion.div
+              className="flex flex-wrap gap-6 mt-12 justify-center"
+              initial={{ opacity: 0 }}
+              whileInView={{ opacity: 1 }}
+              viewport={{ once: true }}
+            >
+              {[
+                { color: ACCENT.green, label: 'Active'   },
+                { color: ACCENT.blue,  label: 'Learning' },
+              ].map(item => (
+                <span key={item.label} className="flex items-center gap-2 font-mono text-xs text-ink-muted">
+                  <span
+                    className="w-2.5 h-2.5 inline-block border"
+                    style={{ background: `${item.color}1A`, borderColor: `${item.color}59` }}
+                  />
+                  {item.label}
+                </span>
+              ))}
+            </motion.div>
+          </>
+        )}
       </div>
     </section>
   )
