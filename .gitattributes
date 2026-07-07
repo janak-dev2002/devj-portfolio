@@ -1,0 +1,8 @@
+# Force LF for anything that runs as a shell script inside a Linux container,
+# regardless of the checkout OS's core.autocrlf setting. Without this, a
+# Windows checkout (core.autocrlf=true) converts backend/mvnw to CRLF, which
+# breaks its "#!/bin/sh" shebang inside the Alpine Docker build stage
+# ("/bin/sh: ./mvnw: not found") — a real build-breaking bug, not a style nit.
+* text=auto eol=lf
+*.bat text eol=crlf
+*.cmd text eol=crlf

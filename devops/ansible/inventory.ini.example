@@ -1,0 +1,6 @@
+# Copy to inventory.ini (gitignored) and fill in the real host.
+[home_server]
+devj-home ansible_host=YOUR_SERVER_IP_OR_HOSTNAME ansible_user=YOUR_SSH_USER
+
+[home_server:vars]
+ansible_python_interpreter=/usr/bin/python3

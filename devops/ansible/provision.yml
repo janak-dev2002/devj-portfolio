@@ -1,0 +1,146 @@
+---
+# One-time, idempotent provisioning for the devj-portfolio home server.
+#
+# Usage (from devops/ansible/):
+#   ansible-galaxy collection install -r requirements.yml
+#   cp inventory.ini.example inventory.ini            # fill in real host
+#   cp group_vars/home_server/vault.yml.example group_vars/home_server/vault.yml
+#   # fill in ghcr_username / ghcr_token, then:
+#   ansible-vault encrypt group_vars/home_server/vault.yml
+#   ansible-playbook provision.yml --ask-vault-pass
+#
+# NOT run against a real host by this agent — see shared/agent-handoffs/devops-done.md.
+# Ongoing deploys after this are GitHub Actions (SSH + `docker compose pull/up`),
+# not repeated Ansible runs — this playbook is for first-time setup (and is
+# safe to re-run any time to reconcile drift, since every task is idempotent).
+
+- name: Provision devj-portfolio home server
+  hosts: home_server
+  become: true
+
+  vars:
+    app_dir: /opt/devj-portfolio
+    deploy_user: "{{ ansible_user }}"
+
+  tasks:
+    - name: Install prerequisite packages
+      ansible.builtin.apt:
+        name:
+          - ca-certificates
+          - curl
+          - gnupg
+          - ufw
+        state: present
+        update_cache: true
+
+    - name: Create /etc/apt/keyrings directory
+      ansible.builtin.file:
+        path: /etc/apt/keyrings
+        state: directory
+        mode: "0755"
+
+    - name: Add Docker's official GPG key
+      ansible.builtin.get_url:
+        url: https://download.docker.com/linux/ubuntu/gpg
+        dest: /etc/apt/keyrings/docker.asc
+        mode: "0644"
+        force: false
+
+    - name: Add Docker apt repository
+      ansible.builtin.apt_repository:
+        repo: >-
+          deb [arch={{ 'amd64' if ansible_architecture == 'x86_64' else ansible_architecture }}
+          signed-by=/etc/apt/keyrings/docker.asc]
+          https://download.docker.com/linux/ubuntu {{ ansible_distribution_release }} stable
+        state: present
+        filename: docker
+
+    - name: Install Docker Engine + Compose plugin
+      ansible.builtin.apt:
+        name:
+          - docker-ce
+          - docker-ce-cli
+          - containerd.io
+          - docker-buildx-plugin
+          - docker-compose-plugin
+        state: present
+        update_cache: true
+
+    - name: Ensure Docker is enabled and running
+      ansible.builtin.systemd:
+        name: docker
+        enabled: true
+        state: started
+
+    - name: Add deploy user to the docker group
+      ansible.builtin.user:
+        name: "{{ deploy_user }}"
+        groups: docker
+        append: true
+
+    - name: Create application directory
+      ansible.builtin.file:
+        path: "{{ app_dir }}"
+        state: directory
+        owner: "{{ deploy_user }}"
+        group: "{{ deploy_user }}"
+        mode: "0750"
+
+    - name: Copy docker-compose.yml
+      ansible.builtin.copy:
+        src: "{{ playbook_dir }}/../../docker-compose.yml"
+        dest: "{{ app_dir }}/docker-compose.yml"
+        owner: "{{ deploy_user }}"
+        group: "{{ deploy_user }}"
+        mode: "0640"
+
+    - name: Copy .env.example (the real .env is created manually on the host — never committed, never templated by Ansible)
+      ansible.builtin.copy:
+        src: "{{ playbook_dir }}/../../.env.example"
+        dest: "{{ app_dir }}/.env.example"
+        owner: "{{ deploy_user }}"
+        group: "{{ deploy_user }}"
+        mode: "0640"
+
+    - name: Log in to GHCR as the deploy user
+      become_user: "{{ deploy_user }}"
+      ansible.builtin.command:
+        cmd: docker login ghcr.io -u {{ ghcr_username }} --password-stdin
+        stdin: "{{ ghcr_token }}"
+      no_log: true
+      changed_when: true
+
+    - name: Configure UFW default-deny incoming, default-allow outgoing
+      community.general.ufw:
+        direction: "{{ item.direction }}"
+        policy: "{{ item.policy }}"
+      loop:
+        - { direction: incoming, policy: deny }
+        - { direction: outgoing, policy: allow }
+
+    - name: Allow SSH inbound (UFW) — the only inbound rule; the Tunnel is outbound-only, no 80/443 needed
+      community.general.ufw:
+        rule: allow
+        name: OpenSSH
+
+    - name: Enable UFW
+      community.general.ufw:
+        state: enabled
+
+    - name: Install systemd unit for auto-start on reboot
+      ansible.builtin.template:
+        src: templates/devj-portfolio.service.j2
+        dest: /etc/systemd/system/devj-portfolio.service
+        mode: "0644"
+      notify: reload systemd
+
+    - name: Enable devj-portfolio systemd unit
+      ansible.builtin.systemd:
+        name: devj-portfolio.service
+        enabled: true
+        daemon_reload: true
+
+  handlers:
+    - name: reload systemd
+      ansible.builtin.systemd:
+        daemon_reload: true

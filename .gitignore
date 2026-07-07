@@ -5,6 +5,10 @@
 *.pem
 *.key
 
+# Ansible — real inventory/vault, never committed
+devops/ansible/inventory.ini
+devops/ansible/group_vars/**/vault.yml
+
 # MCP config — contains credentials, never commit
 .mcp.json
 .gemini/settings.json
