@@ -1,34 +1,42 @@
 import { useState } from 'react'
 import { motion } from 'framer-motion'
 import { personal } from '../data/content'
+import { postContact, ApiError } from '../services/api'
 
 type FormState = 'idle' | 'sending' | 'success' | 'error'
+
+interface ErrorInfo {
+  message:           string
+  retryAfterSeconds?: number
+}
 
 const inputClass =
   'w-full bg-navy-surface border border-navy-border font-mono text-ink-primary ' +
   'text-sm px-3 py-2 outline-none transition-colors placeholder:text-ink-dim ' +
   'focus:border-accent-green focus:shadow-[0_0_0_1px_rgba(0,255,136,0.2)]'
 
+const FALLBACK_ERROR_MESSAGE = 'Could not reach the server. Please email directly.'
+
 export default function Contact() {
-  const [form, setForm] = useState({ name: '', email: '', message: '' })
+  const [form, setForm] = useState({ name: '', email: '', message: '', website: '' })
   const [state, setState] = useState<FormState>('idle')
+  const [successMessage, setSuccessMessage] = useState('')
+  const [errorInfo, setErrorInfo] = useState<ErrorInfo | null>(null)
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     setState('sending')
     try {
-      const res = await fetch('/api/contact', {
-        method:  'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body:    JSON.stringify(form),
-      })
-      if (res.ok) {
-        setState('success')
-        setForm({ name: '', email: '', message: '' })
+      const res = await postContact(form)
+      setSuccessMessage(res.message)
+      setState('success')
+      setForm({ name: '', email: '', message: '', website: '' })
+    } catch (err) {
+      if (err instanceof ApiError) {
+        setErrorInfo({ message: err.body.message, retryAfterSeconds: err.retryAfterSeconds })
       } else {
-        setState('error')
+        setErrorInfo({ message: FALLBACK_ERROR_MESSAGE })
       }
-    } catch {
       setState('error')
     }
   }
@@ -145,6 +153,20 @@ export default function Contact() {
                 />
               </div>
 
+              {/* Honeypot — hidden from real users, left empty; a filled value marks the submission as spam */}
+              <div style={{ position: 'absolute', left: '-9999px', width: 1, height: 1, overflow: 'hidden' }} aria-hidden="true">
+                <label htmlFor="website">Website</label>
+                <input
+                  type="text"
+                  id="website"
+                  name="website"
+                  tabIndex={-1}
+                  autoComplete="off"
+                  value={form.website}
+                  onChange={e => setForm({ ...form, website: e.target.value })}
+                />
+              </div>
+
               <button
                 type="submit"
                 disabled={state === 'sending'}
@@ -156,16 +178,18 @@ export default function Contact() {
 
             {state === 'success' && (
               <p className="mt-4 font-mono text-accent-green text-sm">
-                [  OK  ] Message sent.
+                [  OK  ] {successMessage}
               </p>
             )}
-            {state === 'error' && (
-              <p className="mt-4 font-mono text-red-400 text-sm">
-                [ FAIL ] Send failed. Email directly:{' '}
-                <a href={`mailto:${personal.email}`} className="underline">
-                  {personal.email}
-                </a>
-              </p>
+            {state === 'error' && errorInfo && (
+              <div className="mt-4 font-mono text-red-400 text-sm space-y-1">
+                <p>[ FAIL ] {errorInfo.message}</p>
+                {errorInfo.retryAfterSeconds && (
+                  <p className="text-ink-muted text-xs">
+                    Try again in {errorInfo.retryAfterSeconds}s.
+                  </p>
+                )}
+              </div>
             )}
           </motion.div>
 
