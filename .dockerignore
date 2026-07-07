@@ -1,0 +1,14 @@
+.git
+.github
+.claude
+.gemini
+docs
+shared
+README.md
+
+frontend/node_modules
+frontend/dist
+backend/target
+
+**/*.md
+!frontend/README.md

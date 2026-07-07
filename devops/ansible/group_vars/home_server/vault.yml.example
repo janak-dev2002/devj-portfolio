@@ -1,0 +1,9 @@
+# Copy to vault.yml (same directory) and encrypt it before use:
+#   ansible-vault encrypt group_vars/home_server/vault.yml
+#
+# ghcr_token needs at least `read:packages` scope — this is what lets the
+# server pull the (private, by default) GHCR images. It is NOT the same
+# token as the GHCR_TOKEN GitHub Actions secret, though it can be the same
+# PAT value if you want one token that covers both push (CI) and pull (server).
+ghcr_username: janak-dev2002
+ghcr_token: CHANGE_ME_GITHUB_PAT_WITH_READ_PACKAGES_SCOPE
