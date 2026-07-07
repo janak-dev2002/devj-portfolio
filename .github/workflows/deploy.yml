@@ -82,9 +82,11 @@ jobs:
           ssh-private-key: ${{ secrets.SSH_PRIVATE_KEY }}
 
       - name: Trust the home server's host key
+        env:
+          SERVER_HOST: ${{ secrets.HOME_SERVER_HOST }}
         run: |
           mkdir -p ~/.ssh
-          ssh-keyscan -H "${{ secrets.HOME_SERVER_HOST }}" >> ~/.ssh/known_hosts
+          ssh-keyscan -H "$SERVER_HOST" >> ~/.ssh/known_hosts
 
       # Ship any docker-compose.yml changes on every deploy. The .env file
       # (DB/AWS/Cloudflare secrets) lives only on the server — it is set up
@@ -92,11 +94,17 @@ jobs:
       # This keeps production credentials out of GitHub Actions entirely;
       # the pipeline only ever needs SSH + GHCR-push access.
       - name: Upload docker-compose.yml
+        env:
+          SERVER_USER: ${{ secrets.HOME_SERVER_USER }}
+          SERVER_HOST: ${{ secrets.HOME_SERVER_HOST }}
         run: |
           scp docker-compose.yml \
-            "${{ secrets.HOME_SERVER_USER }}@${{ secrets.HOME_SERVER_HOST }}:/opt/devj-portfolio/docker-compose.yml"
+            "$SERVER_USER@$SERVER_HOST:/opt/devj-portfolio/docker-compose.yml"
 
       - name: Pull new images and restart the stack
+        env:
+          SERVER_USER: ${{ secrets.HOME_SERVER_USER }}
+          SERVER_HOST: ${{ secrets.HOME_SERVER_HOST }}
         run: |
-          ssh "${{ secrets.HOME_SERVER_USER }}@${{ secrets.HOME_SERVER_HOST }}" \
+          ssh "$SERVER_USER@$SERVER_HOST" \
             "cd /opt/devj-portfolio && docker compose pull && docker compose up --detach --remove-orphans"
