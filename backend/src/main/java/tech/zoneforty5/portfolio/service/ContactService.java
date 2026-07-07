@@ -40,7 +40,7 @@ public class ContactService {
             SendEmailRequest sendEmailRequest = SendEmailRequest.builder()
                     .source(recipientEmail)
                     .destination(Destination.builder().toAddresses(recipientEmail).build())
-                    .replyToAddresses(request.email())
+                    .replyToAddresses(sanitizeHeader(request.email()))
                     .message(Message.builder()
                             .subject(textContent("devj-portfolio contact: " + sanitizeHeader(request.name())))
                             .body(Body.builder().text(textContent(buildBody(request))).build())

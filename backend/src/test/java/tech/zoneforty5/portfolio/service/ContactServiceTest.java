@@ -90,4 +90,20 @@ class ContactServiceTest {
         String subject = captor.getValue().message().subject().data();
         assertThat(subject).doesNotContain("\r", "\n");
     }
+
+    @Test
+    void replyToAddressIsSanitizedAgainstCrlfHeaderInjection() {
+        when(sesClient.sendEmail(any(SendEmailRequest.class)))
+                .thenReturn(SendEmailResponse.builder().messageId("msg-1").build());
+        ContactRequest request = new ContactRequest("Jane", "attacker@example.com\r\nBcc: victim@example.com",
+                "Message body with enough length.", "");
+
+        contactService.send(request);
+
+        ArgumentCaptor<SendEmailRequest> captor = ArgumentCaptor.forClass(SendEmailRequest.class);
+        verify(sesClient).sendEmail(captor.capture());
+        String replyTo = captor.getValue().replyToAddresses().get(0);
+        assertThat(replyTo).doesNotContain("\r", "\n");
+        assertThat(replyTo).isEqualTo("attacker@example.com  Bcc: victim@example.com");
+    }
 }

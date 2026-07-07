@@ -18,7 +18,7 @@ public class ContactRateLimitInterceptor implements HandlerInterceptor {
 
     @Override
     public boolean preHandle(HttpServletRequest request, HttpServletResponse response, Object handler) {
-        String clientIp = ClientIpResolver.resolve(request);
+        String clientIp = request.getRemoteAddr();
         ConsumptionProbe probe = rateLimitService.tryConsume(clientIp);
         if (!probe.isConsumed()) {
             long retryAfterSeconds = Math.max(1, probe.getNanosToWaitForRefill() / 1_000_000_000L);
