@@ -9,6 +9,11 @@
 .mcp.json
 .gemini/settings.json
 
+# Internal ZoneForty5 coordination files — not project deliverables
+shared/
+.claude/
+.gemini/
+
 # OS
 Thumbs.db
 .DS_Store
@@ -21,3 +26,7 @@ Thumbs.db
 # Frontend build (has its own .gitignore)
 frontend/node_modules/
 frontend/dist/
+
+# Backend build (Maven)
+backend/target/
+*.class
