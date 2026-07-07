@@ -47,8 +47,33 @@ async function toApiErrorBody(res: Response): Promise<ApiErrorBody> {
   }
 }
 
+// A stalled connection (dropped packets, an unreachable host) never rejects on
+// its own — without this, a hung request leaves callers in 'loading' forever.
+const REQUEST_TIMEOUT_MS = 9000
+
+async function fetchWithTimeout(url: string, path: string, init?: RequestInit): Promise<Response> {
+  const controller = new AbortController()
+  const timer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS)
+  try {
+    return await fetch(url, { ...init, signal: controller.signal })
+  } catch (err) {
+    if (controller.signal.aborted) {
+      throw new ApiError({
+        timestamp: new Date().toISOString(),
+        status:    0,
+        error:     'Timeout',
+        message:   'The server took too long to respond. Please check your connection and try again.',
+        path,
+      })
+    }
+    throw err
+  } finally {
+    clearTimeout(timer)
+  }
+}
+
 async function getJson<T>(path: string): Promise<T> {
-  const res = await fetch(`${API_BASE}${path}`)
+  const res = await fetchWithTimeout(`${API_BASE}${path}`, path)
   if (!res.ok) throw new ApiError(await toApiErrorBody(res))
   return res.json() as Promise<T>
 }
@@ -70,7 +95,8 @@ export interface ContactResponse {
 }
 
 export async function postContact(payload: ContactPayload): Promise<ContactResponse> {
-  const res = await fetch(`${API_BASE}/api/contact`, {
+  const path = '/api/contact'
+  const res = await fetchWithTimeout(`${API_BASE}${path}`, path, {
     method:  'POST',
     headers: { 'Content-Type': 'application/json' },
     body:    JSON.stringify(payload),
