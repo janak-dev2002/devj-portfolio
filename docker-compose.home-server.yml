@@ -1,0 +1,96 @@
+# devj-portfolio — ARCHIVED: home-server hosting plan (superseded 2026-07-07)
+#
+# Not in active use. Hosting moved to an existing shared production server
+# (Certbot + Cloudflare Full Strict, behind an independent shared nginx-proxy
+# stack) instead of a self-provisioned home server behind a Cloudflare Tunnel.
+# Kept here for reference only — see docker-compose.yml for the active config.
+#
+# Topology: db -> backend -> nginx -> cloudflared (Cloudflare Tunnel).
+# No host ports are published anywhere — the only ingress is the Tunnel,
+# which makes an outbound-only connection to Cloudflare's edge and routes
+# devj.zoneforty5.tech -> http://nginx:80 (see shared/architecture.md §6/App. A/B).
+#
+# `build:` is included alongside `image:` so this same file works for both
+# `docker compose build` (local test / CI) and `docker compose pull` (server
+# deploy, which only ever pulls — it never builds).
+
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: devj_portfolio
+      POSTGRES_USER: ${DB_USER}
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER} -d devj_portfolio"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    restart: unless-stopped
+    networks: [internal]
+
+  backend:
+    build:
+      context: ./backend
+    image: ghcr.io/janak-dev2002/devj-portfolio-backend:latest
+    environment:
+      SPRING_DATASOURCE_URL: jdbc:postgresql://db:5432/devj_portfolio
+      SPRING_DATASOURCE_USERNAME: ${DB_USER}
+      SPRING_DATASOURCE_PASSWORD: ${DB_PASSWORD}
+      APP_CORS_ALLOWED_ORIGINS: ${APP_CORS_ALLOWED_ORIGINS}
+      RECIPIENT_EMAIL: ${RECIPIENT_EMAIL}
+      AWS_REGION: ${AWS_REGION}
+      AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID}
+      AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY}
+    depends_on:
+      db:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:8080/actuator/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 40s
+    restart: unless-stopped
+    networks: [internal]
+
+  nginx:
+    build:
+      context: .
+      dockerfile: frontend/Dockerfile
+    image: ghcr.io/janak-dev2002/devj-portfolio-frontend:latest
+    # No host ports — reached only via the Cloudflare Tunnel (cloudflared, below).
+    depends_on:
+      backend:
+        condition: service_healthy
+    healthcheck:
+      # 127.0.0.1, not localhost: this image's default.conf is fully replaced
+      # (no IPv6 "listen [::]:80" gets auto-injected), so "localhost" resolves
+      # to ::1 first inside the container and wget gets connection refused.
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1/healthz"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+    networks: [internal]
+
+  cloudflared:
+    image: cloudflare/cloudflared:latest
+    command: tunnel run
+    environment:
+      TUNNEL_TOKEN: ${CLOUDFLARE_TUNNEL_TOKEN}
+    depends_on:
+      nginx:
+        condition: service_healthy
+    restart: unless-stopped
+    networks: [internal]
+
+volumes:
+  pgdata:
+
+networks:
+  internal:
+    driver: bridge

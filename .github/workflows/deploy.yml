@@ -81,30 +81,51 @@ jobs:
         with:
           ssh-private-key: ${{ secrets.SSH_PRIVATE_KEY }}
 
-      - name: Trust the home server's host key
+      - name: Trust the production server's host key
         env:
-          SERVER_HOST: ${{ secrets.HOME_SERVER_HOST }}
+          SERVER_HOST: ${{ secrets.PROD_SERVER_HOST }}
         run: |
           mkdir -p ~/.ssh
           ssh-keyscan -H "$SERVER_HOST" >> ~/.ssh/known_hosts
 
       # Ship any docker-compose.yml changes on every deploy. The .env file
-      # (DB/AWS/Cloudflare secrets) lives only on the server — it is set up
-      # once via Ansible/manually and is never generated or touched by CI.
+      # (DB/AWS application secrets) lives only on the server — it is set up
+      # once (Ansible or by hand) and is never generated or touched by CI.
       # This keeps production credentials out of GitHub Actions entirely;
       # the pipeline only ever needs SSH + GHCR-push access.
       - name: Upload docker-compose.yml
         env:
-          SERVER_USER: ${{ secrets.HOME_SERVER_USER }}
-          SERVER_HOST: ${{ secrets.HOME_SERVER_HOST }}
+          SERVER_USER: ${{ secrets.PROD_SERVER_USER }}
+          SERVER_HOST: ${{ secrets.PROD_SERVER_HOST }}
         run: |
           scp docker-compose.yml \
             "$SERVER_USER@$SERVER_HOST:/opt/devj-portfolio/docker-compose.yml"
 
+      # proxy_net is pre-existing and shared with the sibling SMR project
+      # (see architecture.md R-8/Appendix C) — this workflow only ever
+      # verifies it, it must NEVER create it. Creating it belongs to the
+      # one-time Ansible provisioning step, not a routine deploy, so that a
+      # typo'd network name or a re-run here can't silently produce a second,
+      # disconnected "proxy_net" that this project joins while the shared
+      # proxy still talks to the original one.
+      #
+      # devops/nginx/production/devj-portfolio.conf (the shared proxy's own
+      # site config) is intentionally NOT deployed by this workflow — see
+      # devops-done.md "Rev 3 Addendum" for the reasoning. Deploy it with
+      # `make deploy-proxy-conf`, run by a human, deliberately.
       - name: Pull new images and restart the stack
         env:
-          SERVER_USER: ${{ secrets.HOME_SERVER_USER }}
-          SERVER_HOST: ${{ secrets.HOME_SERVER_HOST }}
+          SERVER_USER: ${{ secrets.PROD_SERVER_USER }}
+          SERVER_HOST: ${{ secrets.PROD_SERVER_HOST }}
         run: |
-          ssh "$SERVER_USER@$SERVER_HOST" \
-            "cd /opt/devj-portfolio && docker compose pull && docker compose up --detach --remove-orphans"
+          ssh "$SERVER_USER@$SERVER_HOST" '
+            set -e
+            if ! docker network inspect proxy_net >/dev/null 2>&1; then
+              echo "proxy_net Docker network not found on the server." >&2
+              echo "This workflow never creates it (shared with the SMR project) -- run the Ansible provisioning playbook first." >&2
+              exit 1
+            fi
+            cd /opt/devj-portfolio
+            docker compose pull
+            docker compose up --detach --remove-orphans
+          '

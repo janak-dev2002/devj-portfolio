@@ -1,21 +1,28 @@
 ---
-# One-time, idempotent provisioning for the devj-portfolio home server.
+# Light-touch, idempotent provisioning for devj-portfolio on the shared
+# production VPS. Rev 3 (2026-07-09): this server is NOT a fresh host — it
+# already runs Docker for the sibling SMR Price Dashboard project. This
+# playbook therefore does NOT install Docker and does NOT touch UFW/firewall
+# rules; both are already correctly configured for the shared reverse-proxy
+# by prior work this project has no business repeating or overriding. See
+# shared/architecture.md Appendix C for the full rationale.
 #
 # Usage (from devops/ansible/):
-#   ansible-galaxy collection install -r requirements.yml
 #   cp inventory.ini.example inventory.ini            # fill in real host
-#   cp group_vars/home_server/vault.yml.example group_vars/home_server/vault.yml
+#   cp group_vars/production/vault.yml.example group_vars/production/vault.yml
 #   # fill in ghcr_username / ghcr_token, then:
-#   ansible-vault encrypt group_vars/home_server/vault.yml
+#   ansible-vault encrypt group_vars/production/vault.yml
 #   ansible-playbook provision.yml --ask-vault-pass
 #
-# NOT run against a real host by this agent — see shared/agent-handoffs/devops-done.md.
-# Ongoing deploys after this are GitHub Actions (SSH + `docker compose pull/up`),
-# not repeated Ansible runs — this playbook is for first-time setup (and is
-# safe to re-run any time to reconcile drift, since every task is idempotent).
+# NOT run against a real host by this agent — see
+# shared/agent-handoffs/devops-done.md "Rev 3 Addendum". Ongoing deploys
+# after this are GitHub Actions (SSH + `docker compose pull/up`), not
+# repeated Ansible runs — this playbook is for first-time setup and drift
+# reconciliation (safe to re-run any time, every task is idempotent or
+# check-before-act).
 
-- name: Provision devj-portfolio home server
-  hosts: home_server
+- name: Provision devj-portfolio on the shared production server (light touch)
+  hosts: production
   become: true
 
   vars:
@@ -23,60 +30,48 @@
     deploy_user: "{{ ansible_user }}"
 
   tasks:
-    - name: Install prerequisite packages
-      ansible.builtin.apt:
-        name:
-          - ca-certificates
-          - curl
-          - gnupg
-          - ufw
-        state: present
-        update_cache: true
+    - name: Verify Docker is installed and the daemon is running
+      ansible.builtin.command: docker info
+      register: docker_info_check
+      changed_when: false
+      failed_when: false
 
-    - name: Create /etc/apt/keyrings directory
-      ansible.builtin.file:
-        path: /etc/apt/keyrings
-        state: directory
-        mode: "0755"
+    - name: Fail with a clear message if Docker is not available
+      ansible.builtin.fail:
+        msg: >-
+          Docker daemon not reachable on this host. This playbook assumes
+          Docker is already installed and running (the server hosts the SMR
+          project's stack) and deliberately does not install it — see
+          architecture.md Appendix C. If this really is an unprovisioned
+          host, install Docker Engine manually first, then re-run.
+      when: docker_info_check.rc != 0
 
-    - name: Add Docker's official GPG key
-      ansible.builtin.get_url:
-        url: https://download.docker.com/linux/ubuntu/gpg
-        dest: /etc/apt/keyrings/docker.asc
-        mode: "0644"
-        force: false
+    - name: Verify the shared proxy_net Docker network exists
+      ansible.builtin.command: docker network inspect proxy_net
+      register: proxy_net_check
+      changed_when: false
+      failed_when: false
 
-    - name: Add Docker apt repository
-      ansible.builtin.apt_repository:
-        repo: >-
-          deb [arch={{ 'amd64' if ansible_architecture == 'x86_64' else ansible_architecture }}
-          signed-by=/etc/apt/keyrings/docker.asc]
-          https://download.docker.com/linux/ubuntu {{ ansible_distribution_release }} stable
-        state: present
-        filename: docker
-
-    - name: Install Docker Engine + Compose plugin
-      ansible.builtin.apt:
-        name:
-          - docker-ce
-          - docker-ce-cli
-          - containerd.io
-          - docker-buildx-plugin
-          - docker-compose-plugin
-        state: present
-        update_cache: true
-
-    - name: Ensure Docker is enabled and running
-      ansible.builtin.systemd:
-        name: docker
-        enabled: true
-        state: started
+    - name: Fail with a clear message if proxy_net does not exist
+      ansible.builtin.fail:
+        msg: >-
+          proxy_net Docker network not found on this host. It is shared with
+          the SMR project's reverse-proxy stack and this playbook
+          deliberately never creates it (creating/recreating a network
+          another live project depends on is exactly the kind of shared-infra
+          risk architecture.md R-8 warns about). If this is genuinely a fresh
+          host, create it once by hand — `docker network create proxy_net` —
+          after confirming with whoever owns the SMR project, then re-run.
+      when: proxy_net_check.rc != 0
 
     - name: Add deploy user to the docker group
       ansible.builtin.user:
         name: "{{ deploy_user }}"
         groups: docker
         append: true
+      # Needed so the GitHub Actions deploy step (which SSHes in as this
+      # user and runs `docker compose` directly, no sudo) works regardless
+      # of whether this happens to be the same OS user SMR's own deploy uses.
 
     - name: Create application directory
       ansible.builtin.file:
@@ -102,32 +97,38 @@
         group: "{{ deploy_user }}"
         mode: "0640"
 
-    - name: Log in to GHCR as the deploy user
+    - name: Check for existing GHCR auth in the deploy user's Docker config
+      ansible.builtin.stat:
+        path: "/home/{{ deploy_user }}/.docker/config.json"
+      register: docker_config_stat
+      become_user: "{{ deploy_user }}"
+
+    - name: Read the deploy user's Docker config if present
+      ansible.builtin.slurp:
+        path: "/home/{{ deploy_user }}/.docker/config.json"
+      register: docker_config_raw
+      when: docker_config_stat.stat.exists
+      become_user: "{{ deploy_user }}"
+
+    - name: Determine whether GHCR is already authenticated
+      ansible.builtin.set_fact:
+        ghcr_already_authenticated: >-
+          {{ docker_config_stat.stat.exists and
+             ('ghcr.io' in (docker_config_raw.content | b64decode)) }}
+
+    # The server may already be logged in to GHCR for SMR's own private
+    # images (same registry, possibly the same OS user) — verify before
+    # assuming a fresh login is needed, per architecture.md Appendix C.
+    - name: Log in to GHCR as the deploy user (skipped if already authenticated)
       become_user: "{{ deploy_user }}"
       ansible.builtin.command:
         cmd: docker login ghcr.io -u {{ ghcr_username }} --password-stdin
         stdin: "{{ ghcr_token }}"
+      when: not ghcr_already_authenticated
       no_log: true
       changed_when: true
 
-    - name: Configure UFW default-deny incoming, default-allow outgoing
-      community.general.ufw:
-        direction: "{{ item.direction }}"
-        policy: "{{ item.policy }}"
-      loop:
-        - { direction: incoming, policy: deny }
-        - { direction: outgoing, policy: allow }
-
-    - name: Allow SSH inbound (UFW) — the only inbound rule; the Tunnel is outbound-only, no 80/443 needed
-      community.general.ufw:
-        rule: allow
-        name: OpenSSH
-
-    - name: Enable UFW
-      community.general.ufw:
-        state: enabled
-
-    - name: Install systemd unit for auto-start on reboot
+    - name: Install systemd unit for auto-start on reboot (optional — restart:unless-stopped already covers most cases)
       ansible.builtin.template:
         src: templates/devj-portfolio.service.j2
         dest: /etc/systemd/system/devj-portfolio.service

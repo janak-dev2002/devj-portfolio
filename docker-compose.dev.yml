@@ -1,9 +1,10 @@
 # devj-portfolio — LOCAL DEV ONLY stack
 #
 # Just db + backend, with the backend port published to the host so it can be
-# hit directly (curl/Postman/frontend dev server) without the full Nginx +
-# Cloudflare Tunnel production stack. This exists so anyone on the team can
-# get a working backend with one command instead of raw `docker run`:
+# hit directly (curl/Postman/frontend dev server) without the full production
+# stack (shared reverse proxy, external proxy_net, etc. — see docker-compose.yml).
+# This exists so anyone on the team can get a working backend with one command
+# instead of raw `docker run`:
 #
 #   docker compose -f docker-compose.dev.yml up --build
 #

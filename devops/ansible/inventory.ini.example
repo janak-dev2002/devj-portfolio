@@ -1,6 +1,9 @@
 # Copy to inventory.ini (gitignored) and fill in the real host.
-[home_server]
-devj-home ansible_host=YOUR_SERVER_IP_OR_HOSTNAME ansible_user=YOUR_SSH_USER
+#
+# This is the shared production VPS (static IP) that also runs the SMR
+# Price Dashboard project — not a dedicated/fresh host.
+[production]
+devj-prod ansible_host=YOUR_SERVER_IP_OR_HOSTNAME ansible_user=YOUR_SSH_USER
 
-[home_server:vars]
+[production:vars]
 ansible_python_interpreter=/usr/bin/python3

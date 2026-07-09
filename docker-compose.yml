@@ -1,17 +1,35 @@
-# devj-portfolio — production stack (home server)
+# devj-portfolio — production stack (shared production server)
 #
-# Topology: db -> backend -> nginx -> cloudflared (Cloudflare Tunnel).
-# No host ports are published anywhere — the only ingress is the Tunnel,
-# which makes an outbound-only connection to Cloudflare's edge and routes
-# devj.zoneforty5.tech -> http://nginx:80 (see shared/architecture.md §6/App. A/B).
+# Hosted alongside other projects (e.g. SMR Price Dashboard) on one server,
+# behind an INDEPENDENT shared reverse-proxy stack that this project does not
+# own — see /opt/reverse-proxy/ on the server (not part of this repo). That
+# proxy owns host ports 80/443, terminates TLS (Certbot + Cloudflare Full
+# Strict), and routes devj.zoneforty5.tech -> devj-backend:8080 (/api/*) and
+# -> devj-frontend:80 (everything else). Its site config for this project is
+# devops/nginx/production/devj-portfolio.conf (deployed to the shared proxy's
+# conf.d/, not baked into any image here).
+#
+# This stack itself publishes NO host ports — it only joins the pre-existing
+# external `proxy_net` network so the shared proxy can reach it. `proxy_net`
+# must already exist on the server (`docker network create proxy_net`, a
+# one-time step, done once when the shared proxy stack was first set up).
+#
+# Service names are prefixed "devj-" (not plain "backend"/"frontend") because
+# proxy_net is SHARED with other projects on this server (e.g. SMR's own
+# `frontend` service already exists on that network) — Compose registers each
+# service's name as a DNS alias on every network it joins, so an unprefixed
+# name here would collide with another project's same-named service.
 #
 # `build:` is included alongside `image:` so this same file works for both
 # `docker compose build` (local test / CI) and `docker compose pull` (server
 # deploy, which only ever pulls — it never builds).
+#
+# Archived home-server plan (Cloudflare Tunnel): docker-compose.home-server.yml
 
 services:
   db:
     image: postgres:16-alpine
+    container_name: devj_db_container
     environment:
       POSTGRES_DB: devj_portfolio
       POSTGRES_USER: ${DB_USER}
@@ -25,12 +43,16 @@ services:
       retries: 5
       start_period: 10s
     restart: unless-stopped
+    # Private to this project only — never joins proxy_net, so no naming
+    # collision risk exists here regardless of what other projects call
+    # their own database service.
     networks: [internal]
 
-  backend:
+  devj-backend:
     build:
       context: ./backend
     image: ghcr.io/janak-dev2002/devj-portfolio-backend:latest
+    container_name: devj_backend_container
     environment:
       SPRING_DATASOURCE_URL: jdbc:postgresql://db:5432/devj_portfolio
       SPRING_DATASOURCE_USERNAME: ${DB_USER}
@@ -50,17 +72,20 @@ services:
       retries: 5
       start_period: 40s
     restart: unless-stopped
-    networks: [internal]
+    # internal: talks to db. proxy_net: reachable by the shared proxy as
+    # "devj-backend" (this service's own name — matches devj-portfolio.conf's
+    # proxy_pass target) for /api/*.
+    networks: [internal, proxy_net]
 
-  nginx:
+  devj-frontend:
     build:
       context: .
       dockerfile: frontend/Dockerfile
     image: ghcr.io/janak-dev2002/devj-portfolio-frontend:latest
-    # No host ports — reached only via the Cloudflare Tunnel (cloudflared, below).
-    depends_on:
-      backend:
-        condition: service_healthy
+    container_name: devj_frontend_container
+    # Static-file-only image now (no internal /api/* proxy logic — the shared
+    # proxy routes /api/* straight to devj-backend itself). No host ports;
+    # reachable by the shared proxy as "devj-frontend" on proxy_net.
     healthcheck:
       # 127.0.0.1, not localhost: this image's default.conf is fully replaced
       # (no IPv6 "listen [::]:80" gets auto-injected), so "localhost" resolves
@@ -70,18 +95,7 @@ services:
       timeout: 5s
       retries: 5
     restart: unless-stopped
-    networks: [internal]
-
-  cloudflared:
-    image: cloudflare/cloudflared:latest
-    command: tunnel run
-    environment:
-      TUNNEL_TOKEN: ${CLOUDFLARE_TUNNEL_TOKEN}
-    depends_on:
-      nginx:
-        condition: service_healthy
-    restart: unless-stopped
-    networks: [internal]
+    networks: [proxy_net]
 
 volumes:
   pgdata:
@@ -89,3 +103,5 @@ volumes:
 networks:
   internal:
     driver: bridge
+  proxy_net:
+    external: true

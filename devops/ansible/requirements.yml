@@ -1,4 +1,9 @@
 ---
 # ansible-galaxy collection install -r requirements.yml
-collections:
-  - name: community.general
+#
+# Rev 3 (2026-07-09): the UFW tasks that needed community.general were
+# dropped from provision.yml (server's firewall is already configured and
+# is deliberately not touched — see architecture.md Appendix C). No external
+# collections are required right now; kept as an empty list rather than
+# deleted so a future role has an obvious place to add one.
+collections: []
