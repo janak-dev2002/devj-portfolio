@@ -38,7 +38,7 @@ export default function About() {
           viewport={{ once: true }}
           className="mb-8"
         >
-          <h2 className="font-sans text-3xl font-bold text-ink-primary mb-2">About</h2>
+          <h2 className="font-sans text-3xl font-bold text-ink-primary mb-2">About Me</h2>
         </motion.div>
 
         <div className="grid grid-cols-1 lg:grid-cols-5 gap-8" ref={wrapperRef}>
